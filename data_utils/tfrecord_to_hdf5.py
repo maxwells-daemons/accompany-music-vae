@@ -44,7 +44,7 @@ DIM_TRIO = 692
               help='Checkpoint to use for the pretrained model.')
 @click.option('--log_period', type=click.IntRange(min=0), default=1,
               help='How many chunks pass between logging lines.')
-@click.option('--log_file', type=click.Path(), default='melody_dataset.log')
+@click.option('--log_file', type=click.Path(), default='logs/split_dataset.log')
 def main(input_file, output_file,
          chunk_size, buffer_size,
          batch_size, checkpoint,
