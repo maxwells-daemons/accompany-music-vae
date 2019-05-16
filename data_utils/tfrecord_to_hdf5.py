@@ -186,6 +186,16 @@ def main(input_file, output_file,
         except StopIteration:
             pass
 
+    log.debug('Finished writing data')
+    log.debug('Resizing datasets...')
+    dataset_size = i_example
+    ds_trio.resize((dataset_size, TIMESTEPS, DIM_TRIO))
+    ds_melody.resize((dataset_size, TIMESTEPS, DIM_MELODY))
+    ds_bass.resize((dataset_size, TIMESTEPS, DIM_BASS))
+    ds_drums.resize((dataset_size, TIMESTEPS, DIM_DRUMS))
+    ds_code.resize((dataset_size, config.hparams.z_size))
+    log.debug('Done resizing datasets...')
+
     total_time = time() - total_start_time
     log.info('Finished creating HDF5 dataset')
     log.info('Total examples: {}'.format(i_example))
