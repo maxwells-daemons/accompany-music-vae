@@ -120,7 +120,11 @@ def main(input_file, output_file,
 
                 log.debug('Processing a chunk of NoteSequences...')
                 start_time = time()
-                note_sequences = it.islice(ns_iter, chunk_size)
+
+                note_sequences = list(it.islice(ns_iter, chunk_size))
+                if not note_sequences:
+                    break
+
                 trio_tensors = map(
                     lambda seq: trio_converter.to_tensors(seq).outputs,
                     note_sequences
