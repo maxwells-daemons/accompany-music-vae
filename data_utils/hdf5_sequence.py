@@ -28,6 +28,7 @@ class HDF5Sequence(Sequence):
         '''
         self.batch_size = batch_size
         self._datasets = [data_file[col] for col in columns]
+        self._shapes = [(batch_size,) + ds.shape[1:] for ds in self._datasets]
         self._index = np.loadtxt(index_path, dtype=int) if index_path \
             else np.arange(len(self._datasets[0]))
 
@@ -48,4 +49,10 @@ class HDF5Sequence(Sequence):
         tuple
             The columns of the data file at index.
         '''
-        return tuple([ds[self._index[index]] for ds in self._datasets])
+        indices = self._index[index:index + self.batch_size]
+        outs = []
+        for ds, shape in zip(self._datasets, self._shapes):
+            outs.append(np.zeros(shape))
+            for j, i in enumerate(indices):
+                outs[-1][j] = ds[i]
+        return tuple(outs)
