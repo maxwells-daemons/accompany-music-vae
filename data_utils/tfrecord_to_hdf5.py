@@ -153,7 +153,7 @@ def main(input_file, output_file,
 
                 log.debug('Running encoder...')
                 start_time = time()
-                codes, _, _ = model.encode_tensors(deepcopy(trio_tensors),
+                _, codes, _ = model.encode_tensors(deepcopy(trio_tensors),
                                                    [TIMESTEPS] * n_tensors)
                 log.debug('Done running encoder (time: {0:.1f}s)'
                           .format(time() - start_time))
