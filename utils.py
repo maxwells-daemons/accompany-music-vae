@@ -20,7 +20,8 @@ def strip_to_melody(sequence):
         The input sequence's melody as a NoteSequence.
     '''
     melody = deepcopy(sequence)
-    melody_notes = list(filter(lambda note: not note.instrument,
+    melody_notes = list(filter(lambda note: note.instrument == 2,
+                               # note.instrument == 1 or note.instrument == 0,
                                sequence.notes[:]))
     del melody.notes[:]
     melody.notes.extend(melody_notes)
