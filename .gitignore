@@ -1,7 +1,6 @@
 ### Project files
 models/
 data/
-*.ipynb
 
 ### Python
 ### Source: https://github.com/github/gitignore/blob/master/Python.gitignore
