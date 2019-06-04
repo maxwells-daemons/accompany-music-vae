@@ -5,18 +5,15 @@ Uses a trained surrogate encoder and a pretrained decoder to perform inference.
 
 Functions
 ---------
-generate_accompaniments() : [NoteSequence]
-    Generate accompaniment for a list of sequences.
+generate_accompaniment() : NoteSequence
+    Generate accompaniment for a note sequence.
 
 Examples
 --------
 ```
 model = keras.models.load_model(...)
-inputs = [
-    './data/lmd_clean/raw/Michael Jackson/Beat It.mid',
-    './data/lmd_clean/raw/Black Sabbath/Iron Man.mid'
-]
-accompaniments = generate_accompaniments(inputs, model)
+song = './data/lmd_clean/raw/Michael Jackson/Beat It.mid'
+accompaniments = generate_accompaniments(song, model)
 ```
 '''
 
@@ -29,20 +26,20 @@ import magenta.music as mm
 from magenta.models.music_vae import configs, trained_model
 from magenta.music.sequences_lib import concatenate_sequences
 
-from constants import (MUSICVAE_MODEL_NAME, MUSICVAE_MODEL_PATH, DIM_MELODY)
+from constants import (MUSICVAE_MODEL_NAME, MUSICVAE_MODEL_PATH, TIMESTEPS)
 from utils import (strip_to_melody, remove_melody)
 
 
-def generate_accompaniments(_sequences, surrogate_encoder, musicvae=None,
-                            stitch=True, extract_melody=False,
-                            remove_controls=False, temperature=0.1):
+def generate_accompaniment(seq, surrogate_encoder, musicvae=None,
+                           stitch=True, extract_melody=True,
+                           remove_controls=True, temperature=0.1):
     '''
-    Generate accompaniment for a collection of input sequences.
+    Generate accompaniment for an input sequence.
 
     Parameters
     ----------
-    sequences : [str path to midi or NoteSequence]
-        The input sequences.
+    seq : str path to midi or NoteSequence
+        The input sequence.
     surrogate_encoder : keras Model
         The model to map melodies to latent vectors.
     musicvae : None or Magenta MusicVAE (optional)
@@ -61,11 +58,12 @@ def generate_accompaniments(_sequences, surrogate_encoder, musicvae=None,
 
     Returns
     -------
-    [NoteSequence]
-        The input sequences along with generated accompaniment.
+    NoteSequence
+        The input sequence along with generated accompaniment.
     '''
 
     config = configs.CONFIG_MAP[MUSICVAE_MODEL_NAME]
+    melody_converter = config.data_converter._melody_converter
 
     musicvae = musicvae or trained_model.TrainedModel(
         config, batch_size=16,
@@ -73,68 +71,49 @@ def generate_accompaniments(_sequences, surrogate_encoder, musicvae=None,
                                             MUSICVAE_MODEL_NAME + '.ckpt')
     )
 
-    sequences = deepcopy(_sequences)
-    melodies = []
+    # If the sequence is provided as a MIDI path, load it
+    if isinstance(seq, str):
+        midi = None
+        with open(seq, 'rb') as midi_file:
+            midi = midi_file.read()
+        seq = mm.midi_to_sequence_proto(midi)
 
-    for (i, seq) in enumerate(sequences):
-        if isinstance(seq, str):
-            midi = None
-            with open(seq, 'rb') as midi_file:
-                midi = midi_file.read()
-            seq = mm.midi_to_sequence_proto(midi)
+    if remove_controls:
+        del seq.tempos[1:]
+        del seq.time_signatures[1:]
+        del seq.control_changes[1:]
 
-        if remove_controls:
-            del seq.tempos[1:]
-            del seq.time_signatures[1:]
-            del seq.control_changes[1:]
-#             del seq.tempos[0:]
-#             del seq.time_signatures[0:]
-#             del seq.control_changes[0:]
+    if extract_melody:
+        seq = strip_to_melody(seq)
 
-        if extract_melody:
-            seq = strip_to_melody(seq)
+    # Convert the input NoteSequence to a single-instrument tensor
+    melody_tracks = melody_converter.to_tensors(seq).outputs
+    instrument_counts = [np.sum(melody_tracks[i][:, 1:])
+                         for i in range(len(melody_tracks))]
+    instrument_idx = np.argmax(instrument_counts)
+    melody_tensor = melody_tracks[instrument_idx]
 
-#         melody_tensor = config.data_converter._melody_converter.to_tensors(seq).outputs
-        
-        # Convert the sequence to tensors, and then strip out just the melody.
-        trio_tensors  = config.data_converter.to_tensors(seq).outputs
-        melody_tensors = np.array(list(map(lambda t: t[:, :DIM_MELODY],
-                                       trio_tensors)))
+    # Slice the melody into non-overlapping windows
+    windows = [melody_tensor[i * TIMESTEPS:(i+1) * TIMESTEPS, :]
+               for i in range(melody_tensor.shape[0] // TIMESTEPS + 1)]
+    windows[-1] = np.pad(windows[-1],
+                         [(0, max(0, TIMESTEPS - windows[-1].shape[0])),
+                          (0, 0)],
+                         mode='constant')
+    windows_stacked = np.stack(windows)
 
-        # Pad sequence to length 256 (16 beats) if its too small (batch size of 1)
-        if melody_tensors.shape[0] == 1:
-            pad = max(0, 256 - melody_tensors[0].shape[0])
-            melody_tensors[0] = np.pad(melody_tensors[0], [(0, pad), (0, 0)], 'constant')
-        melodies.append(melody_tensors)
-        
-        # Save the modified sequence
-        sequences[i] = seq
+    # Perform inference
+    latent_codes = surrogate_encoder.predict(windows_stacked)
+    decoded_sequences = musicvae.decode(latent_codes, temperature=temperature)
+    decoded = concatenate_sequences(decoded_sequences)
 
-    # Get the latent representation of just the melody using our trained model
-    latent_codes = [surrogate_encoder.predict([melody]) for melody in melodies]
-    
-    # Decode the latent representation of the melody into 3 parts using Trio
-    # Note that this returns an array of different, related musical sections.
-    # We use concatenate_sequences to combine them all into one longer piece.
-    decoded_sequences = [concatenate_sequences(
-                            musicvae.decode(latent_code, 
-                                            #length=64,
-                                            temperature=temperature)
-                         )
-                         for latent_code in latent_codes]
-
-    out_sequences = []
-    
     # Stitch the original melody and the new accompaniment together.
     if stitch:
-        for input_melody, accompaniment in zip(sequences, decoded_sequences):
-            # Take the accompaniment from `accompaniment` and the melody from `input_melody`
-            out = remove_melody(accompaniment)
-            recombined_seq = strip_to_melody(input_melody)
-            out.MergeFrom(recombined_seq)
-#             out.notes.extend(melody.notes)
-            out_sequences.append(out)
-    else:
-        out_sequences = decoded_sequences
+        melody_tensor_padded = np.stack(windows_stacked, axis=0)
+        melody_padded = concatenate_sequences(
+            melody_converter.to_notesequences(melody_tensor_padded))
+        out = remove_melody(decoded)
+        out.MergeFrom(melody_padded)
+        return out
 
-    return out_sequences
+    return decoded
