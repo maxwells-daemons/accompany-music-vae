@@ -9,6 +9,8 @@ CHECKPOINT_PATH : str path
     Base path of model checkpoint files.
 MUSICVAE_MODEL_PATH : str path
     Base path of pretrained MusicVAE models.
+MUSICVAE_MODEL_PATH : str
+    Name of MusicVAE trio model used.
 LOG_PATH : str path
     Base path of log files.
 
@@ -28,6 +30,7 @@ DIM_DRUMS : int
 DATA_PATH = './data/'
 CHECKPOINT_PATH = './models/checkpoints/'
 MUSICVAE_MODEL_PATH = './models/pretrained/'
+MUSICVAE_MODEL_NAME = 'hierdec-trio_16bar'
 LOG_PATH = './logs/'
 
 TIMESTEPS = 256
