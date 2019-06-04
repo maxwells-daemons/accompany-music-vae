@@ -95,31 +95,44 @@ def generate_accompaniments(_sequences, surrogate_encoder, musicvae=None,
             seq = strip_to_melody(seq)
 
 #         melody_tensor = config.data_converter._melody_converter.to_tensors(seq).outputs
-        trio_tensors  = config.data_converter.to_tensors(seq).outputs
-    
-        # TODO: Take all, not just the first. See Inference.ipynb
-        melody_tensor = np.array(list(map(lambda t: t[:, :DIM_MELODY],
-                                       trio_tensors)))[0]
-
-        # Pad sequence to length 256, batch size of 1
-        pad = max(0, 256 - melody_tensor.shape[0])
-        melody_tensor = np.pad(melody_tensor, [(0, pad), (0, 0)], 'constant')
-        melodies.append(melody_tensor)
         
+        # Convert the sequence to tensors, and then strip out just the melody.
+        trio_tensors  = config.data_converter.to_tensors(seq).outputs
+        melody_tensors = np.array(list(map(lambda t: t[:, :DIM_MELODY],
+                                       trio_tensors)))
+
+        # Pad sequence to length 256 (16 beats) if its too small (batch size of 1)
+        if melody_tensors.shape[0] == 1:
+            pad = max(0, 256 - melody_tensors[0].shape[0])
+            melody_tensors[0] = np.pad(melody_tensors[0], [(0, pad), (0, 0)], 'constant')
+        melodies.append(melody_tensors)
+        
+        # Save the modified sequence
         sequences[i] = seq
 
-    latent_codes = [surrogate_encoder.predict([[melody]]) for melody in melodies]
+    # Get the latent representation of just the melody using our trained model
+    latent_codes = [surrogate_encoder.predict([melody]) for melody in melodies]
+    
+    # Decode the latent representation of the melody into 3 parts using Trio
+    # Note that this returns an array of different, related musical sections.
+    # We use concatenate_sequences to combine them all into one longer piece.
     decoded_sequences = [concatenate_sequences(
-                            musicvae.decode(latent_code, length=64,
+                            musicvae.decode(latent_code, 
+                                            #length=64,
                                             temperature=temperature)
                          )
                          for latent_code in latent_codes]
 
     out_sequences = []
+    
+    # Stitch the original melody and the new accompaniment together.
     if stitch:
-        for melody, accompaniment in zip(sequences, decoded_sequences):
+        for input_melody, accompaniment in zip(sequences, decoded_sequences):
+            # Take the accompaniment from `accompaniment` and the melody from `input_melody`
             out = remove_melody(accompaniment)
-            out.notes.extend(melody.notes)
+            recombined_seq = strip_to_melody(input_melody)
+            out.MergeFrom(recombined_seq)
+#             out.notes.extend(melody.notes)
             out_sequences.append(out)
     else:
         out_sequences = decoded_sequences
