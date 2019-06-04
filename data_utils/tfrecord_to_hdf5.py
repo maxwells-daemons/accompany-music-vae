@@ -33,6 +33,7 @@ DIM_TRIO = 692
 @click.command()
 @click.argument('input_file', type=click.Path(exists=True))
 @click.argument('output_file', type=click.Path(exists=False))
+@click.option('--include_all_instruments', type=bool, default=False)
 @click.option('--chunk_size', type=click.IntRange(min=1), default=128,
               help='Number of MIDI files to read at once.')
 @click.option('--buffer_size', type=click.IntRange(min=1), default=50000,
@@ -44,11 +45,11 @@ DIM_TRIO = 692
               help='Checkpoint to use for the pretrained model.')
 @click.option('--log_period', type=click.IntRange(min=0), default=1,
               help='How many chunks pass between logging lines.')
-@click.option('--log_file', type=click.Path(), default='logs/split_dataset.log')
+@click.option('--log_file', type=click.Path(),
+              default='logs/split_dataset.log')
 def main(input_file, output_file,
-         chunk_size, buffer_size,
-         batch_size, checkpoint,
-         log_period, log_file):
+         include_all_instruments, chunk_size, buffer_size, batch_size,
+         checkpoint, log_period, log_file):
     args = locals()
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     log = logging.getLogger(__name__)
@@ -69,28 +70,10 @@ def main(input_file, output_file,
     start_time = time()
     with h5py.File(output_file, 'w') as data_file:
         dataset_size = buffer_size
-        ds_trio = data_file.create_dataset(
-            'trio',
-            (dataset_size, TIMESTEPS, DIM_TRIO),
-            maxshape=(None, TIMESTEPS, DIM_TRIO),
-            dtype=np.bool
-        )
         ds_melody = data_file.create_dataset(
             'melody',
             (dataset_size, TIMESTEPS, DIM_MELODY),
             maxshape=(None, TIMESTEPS, DIM_MELODY),
-            dtype=np.bool
-        )
-        ds_bass = data_file.create_dataset(
-            'bass',
-            (dataset_size, TIMESTEPS, DIM_BASS),
-            maxshape=(None, TIMESTEPS, DIM_BASS),
-            dtype=np.bool
-        )
-        ds_drums = data_file.create_dataset(
-            'drums',
-            (dataset_size, TIMESTEPS, DIM_DRUMS),
-            maxshape=(None, TIMESTEPS, DIM_DRUMS),
             dtype=np.bool
         )
         ds_code = data_file.create_dataset(
@@ -99,6 +82,27 @@ def main(input_file, output_file,
             maxshape=(None, config.hparams.z_size),
             dtype=np.float32
         )
+
+        if include_all_instruments:
+            ds_trio = data_file.create_dataset(
+                'trio',
+                (dataset_size, TIMESTEPS, DIM_TRIO),
+                maxshape=(None, TIMESTEPS, DIM_TRIO),
+                dtype=np.bool
+            )
+            ds_bass = data_file.create_dataset(
+                'bass',
+                (dataset_size, TIMESTEPS, DIM_BASS),
+                maxshape=(None, TIMESTEPS, DIM_BASS),
+                dtype=np.bool
+            )
+            ds_drums = data_file.create_dataset(
+                'drums',
+                (dataset_size, TIMESTEPS, DIM_DRUMS),
+                maxshape=(None, TIMESTEPS, DIM_DRUMS),
+                dtype=np.bool
+            )
+
         log.debug('Done creating HDF5 store (time: {0:.1f}s)'
                   .format(time() - start_time))
 
@@ -142,12 +146,15 @@ def main(input_file, output_file,
 
                 melody_tensors = list(map(lambda t: t[:, :DIM_MELODY],
                                           trio_tensors))
-                bass_tensors = list(map(
-                    lambda t: t[:, DIM_MELODY:DIM_MELODY + DIM_BASS],
-                    trio_tensors
-                ))
-                drums_tensors = list(map(lambda t: t[:, -DIM_DRUMS:],
-                                         trio_tensors))
+
+                if include_all_instruments:
+                    bass_tensors = list(map(
+                        lambda t: t[:, DIM_MELODY:DIM_MELODY + DIM_BASS],
+                        trio_tensors
+                    ))
+                    drums_tensors = list(map(lambda t: t[:, -DIM_DRUMS:],
+                                             trio_tensors))
+
                 log.debug('Done processing NoteSequences (time: {0:.1f}s)'
                           .format(time() - start_time))
 
@@ -161,19 +168,24 @@ def main(input_file, output_file,
                 if i_last >= dataset_size:
                     dataset_size += buffer_size
                     log.info('Resizing datasets to size:', dataset_size)
-                    ds_trio.resize((dataset_size, TIMESTEPS, DIM_TRIO))
                     ds_melody.resize((dataset_size, TIMESTEPS, DIM_MELODY))
-                    ds_bass.resize((dataset_size, TIMESTEPS, DIM_BASS))
-                    ds_drums.resize((dataset_size, TIMESTEPS, DIM_DRUMS))
                     ds_code.resize((dataset_size, config.hparams.z_size))
+
+                    if include_all_instruments:
+                        ds_trio.resize((dataset_size, TIMESTEPS, DIM_TRIO))
+                        ds_bass.resize((dataset_size, TIMESTEPS, DIM_BASS))
+                        ds_drums.resize((dataset_size, TIMESTEPS, DIM_DRUMS))
 
                 log.debug('Writing examples to HDF5...')
                 start_time = time()
-                ds_trio[i_example:i_last, :, :] = np.array(trio_tensors)
                 ds_melody[i_example:i_last, :, :] = np.array(melody_tensors)
-                ds_bass[i_example:i_last, :, :] = np.array(bass_tensors)
-                ds_drums[i_example:i_last, :, :] = np.array(drums_tensors)
                 ds_code[i_example:i_last, :] = np.array(codes)
+
+                if include_all_instruments:
+                    ds_trio[i_example:i_last, :, :] = np.array(trio_tensors)
+                    ds_bass[i_example:i_last, :, :] = np.array(bass_tensors)
+                    ds_drums[i_example:i_last, :, :] = np.array(drums_tensors)
+
                 log.debug('Done writing examples to HDF5 (time: {0:.1f}s)'
                           .format(time() - start_time))
 
@@ -189,11 +201,12 @@ def main(input_file, output_file,
     log.debug('Finished writing data')
     log.debug('Resizing datasets...')
     dataset_size = i_example
-    ds_trio.resize((dataset_size, TIMESTEPS, DIM_TRIO))
     ds_melody.resize((dataset_size, TIMESTEPS, DIM_MELODY))
-    ds_bass.resize((dataset_size, TIMESTEPS, DIM_BASS))
-    ds_drums.resize((dataset_size, TIMESTEPS, DIM_DRUMS))
     ds_code.resize((dataset_size, config.hparams.z_size))
+    if include_all_instruments:
+        ds_trio.resize((dataset_size, TIMESTEPS, DIM_TRIO))
+        ds_bass.resize((dataset_size, TIMESTEPS, DIM_BASS))
+        ds_drums.resize((dataset_size, TIMESTEPS, DIM_DRUMS))
     log.debug('Done resizing datasets...')
 
     total_time = time() - total_start_time
