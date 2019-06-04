@@ -27,12 +27,13 @@ from copy import deepcopy
 import numpy as np
 import magenta.music as mm
 from magenta.models.music_vae import configs, trained_model
+from magenta.music.sequences_lib import concatenate_sequences
 
-from constants import (MUSICVAE_MODEL_NAME, MUSICVAE_MODEL_PATH)
+from constants import (MUSICVAE_MODEL_NAME, MUSICVAE_MODEL_PATH, DIM_MELODY)
 from utils import (strip_to_melody, remove_melody)
 
 
-def generate_accompaniments(sequences, surrogate_encoder, musicvae=None,
+def generate_accompaniments(_sequences, surrogate_encoder, musicvae=None,
                             stitch=True, extract_melody=False,
                             remove_controls=False, temperature=0.1):
     '''
@@ -72,33 +73,47 @@ def generate_accompaniments(sequences, surrogate_encoder, musicvae=None,
                                             MUSICVAE_MODEL_NAME + '.ckpt')
     )
 
+    sequences = deepcopy(_sequences)
     melodies = []
 
-    for seq_ in sequences:
-        seq = deepcopy(seq_)
-
+    for (i, seq) in enumerate(sequences):
         if isinstance(seq, str):
-            seq = mm.midi_to_sequence_proto(seq)
+            midi = None
+            with open(seq, 'rb') as midi_file:
+                midi = midi_file.read()
+            seq = mm.midi_to_sequence_proto(midi)
 
         if remove_controls:
-            del seq.tempos[:]
-            del seq.time_signatures[:]
-            del seq.control_changes[:]
+            del seq.tempos[1:]
+            del seq.time_signatures[1:]
+            del seq.control_changes[1:]
+#             del seq.tempos[0:]
+#             del seq.time_signatures[0:]
+#             del seq.control_changes[0:]
 
         if extract_melody:
             seq = strip_to_melody(seq)
 
-        melody_tensor = config.data_converter._melody_converter.to_tensors(seq)
-        melody_tensor = melody_tensor.outputs[0]
+#         melody_tensor = config.data_converter._melody_converter.to_tensors(seq).outputs
+        trio_tensors  = config.data_converter.to_tensors(seq).outputs
+    
+        # TODO: Take all, not just the first. See Inference.ipynb
+        melody_tensor = np.array(list(map(lambda t: t[:, :DIM_MELODY],
+                                       trio_tensors)))[0]
 
         # Pad sequence to length 256, batch size of 1
         pad = max(0, 256 - melody_tensor.shape[0])
         melody_tensor = np.pad(melody_tensor, [(0, pad), (0, 0)], 'constant')
         melodies.append(melody_tensor)
+        
+        sequences[i] = seq
 
-    latent_codes = surrogate_encoder.predict(melodies)
-    decoded_sequences = musicvae.decode(latent_codes, length=64,
-                                        temperature=temperature)
+    latent_codes = [surrogate_encoder.predict([[melody]]) for melody in melodies]
+    decoded_sequences = [concatenate_sequences(
+                            musicvae.decode(latent_code, length=64,
+                                            temperature=temperature)
+                         )
+                         for latent_code in latent_codes]
 
     out_sequences = []
     if stitch:
