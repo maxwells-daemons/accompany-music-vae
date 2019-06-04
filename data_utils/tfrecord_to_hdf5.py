@@ -21,13 +21,10 @@ import magenta.music as mm
 from magenta.models.music_vae import configs
 from magenta.models.music_vae.trained_model import TrainedModel
 
+from constants import (TIMESTEPS, DIM_MELODY, DIM_BASS, DIM_DRUMS, DIM_TRIO)
+
 # Constants
 MODEL_NAME = 'hierdec-trio_16bar'
-TIMESTEPS = 256
-DIM_MELODY = 90
-DIM_BASS = 90
-DIM_DRUMS = 512
-DIM_TRIO = 692
 
 
 @click.command()

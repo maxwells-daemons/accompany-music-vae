@@ -1,11 +1,20 @@
 '''
 Project-wide utilities.
+
+Functions
+---------
+is_melody(Note) : bool
+strip_to_melody(NoteSequence) : NoteSequence
+remove_melody(NoteSequence) : NoteSequence
 '''
+
 
 from copy import deepcopy
 
+
 def is_melody(note):
     return note.program <= 31 and not note.is_drum
+
 
 def strip_to_melody(sequence):
     '''
