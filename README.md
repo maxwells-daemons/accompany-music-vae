@@ -1,7 +1,7 @@
 # accompany-music-vae
 Using [Magenta's MusicVAE](https://github.com/tensorflow/magenta/tree/master/magenta/models/music_vae) to generate musical accompaniment.
 
-Read [my writeup on my personal site](https://aidanswope.com/accompaniment), or [check out our poster](https://drive.google.com/file/d/1SYW0uhId39YXQMXmvfQQf49A6d1J4ooF/view?usp=sharing)!
+Read [my writeup on my personal site](https://aidanswope.com/2020/accompaniment/), or [check out our poster](https://drive.google.com/file/d/1SYW0uhId39YXQMXmvfQQf49A6d1J4ooF/view?usp=sharing)!
 
 # Setup
 
